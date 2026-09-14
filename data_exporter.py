@@ -32,4 +32,190 @@ class DataExporter:
         if not data:
             return None
         
-        filepath = self.output_d
+        filepath = self.output_dir / f"{filename}.csv"
+        
+        flat_data = []
+        for item in data:
+            flat_item = self._flatten_dict(item)
+            flat_data.append(flat_item)
+        
+        all_keys = set()
+        for item in flat_data:
+            all_keys.update(item.keys())
+        
+        with open(filepath, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=sorted(all_keys))
+            writer.writeheader()
+            writer.writerows(flat_data)
+        
+        return filepath
+    
+    def export_to_python(self, data: List[Dict[str, Any]], filename: str, variable_name: str) -> Path:
+        """Export data as Python variable for direct import"""
+        filepath = self.output_dir / f"{filename}.py"
+        
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(f'"""\nGenerated test data for {filename}\n"""\n\n')
+            f.write(f'{variable_name} = {self._format_python_data(data)}\n')
+        
+        return filepath
+    
+    def _format_python_data(self, data: Any, indent: int = 0) -> str:
+        """Format data as valid Python code with proper True/False/None"""
+        indent_str = '    ' * indent
+        next_indent_str = '    ' * (indent + 1)
+        
+        if data is None:
+            return 'None'
+        elif isinstance(data, bool):
+            return 'True' if data else 'False'
+        elif isinstance(data, (int, float)):
+            return str(data)
+        elif isinstance(data, str):
+            return repr(data)
+        elif isinstance(data, list):
+            if not data:
+                return '[]'
+            items = []
+            for item in data:
+                formatted_item = self._format_python_data(item, indent + 1)
+                items.append(f'{next_indent_str}{formatted_item}')
+            return '[\n' + ',\n'.join(items) + f'\n{indent_str}]'
+        elif isinstance(data, dict):
+            if not data:
+                return '{}'
+            items = []
+            for key, value in data.items():
+                formatted_value = self._format_python_data(value, indent + 1)
+                items.append(f'{next_indent_str}{repr(key)}: {formatted_value}')
+            return '{\n' + ',\n'.join(items) + f'\n{indent_str}}}'
+        else:
+            return repr(data)
+    
+    def _flatten_dict(self, d: Dict[str, Any], parent_key: str = '', sep: str = '_') -> Dict[str, Any]:
+        """Flatten nested dictionary for CSV export"""
+        items = []
+        
+        for k, v in d.items():
+            new_key = f"{parent_key}{sep}{k}" if parent_key else k
+            
+            if isinstance(v, dict):
+                items.extend(self._flatten_dict(v, new_key, sep=sep).items())
+            elif isinstance(v, list) and v and isinstance(v[0], dict):
+                for i, item in enumerate(v):
+                    if isinstance(item, dict):
+                        items.extend(self._flatten_dict(item, f"{new_key}_{i}", sep=sep).items())
+                    else:
+                        items.append((f"{new_key}_{i}", item))
+            elif isinstance(v, list):
+                items.append((new_key, ', '.join(map(str, v))))
+            else:
+                items.append((new_key, v))
+        
+        return dict(items)
+
+
+def generate_all_datasets():
+    """Generate complete datasets for all exercise types"""
+    config = DataConfig()
+    exporter = DataExporter()
+    
+    print("Generating complete datasets...")
+    
+    station_gen = SpaceStationGenerator(config)
+    stations = station_gen.generate_station_data(10)
+    
+    contact_gen = AlienContactGenerator(config)
+    contacts = contact_gen.generate_contact_data(15)
+    
+    mission_gen = CrewMissionGenerator(config)
+    missions = mission_gen.generate_mission_data(5)
+    
+    datasets = [
+        (stations, "space_stations", "SPACE_STATIONS"),
+        (contacts, "alien_contacts", "ALIEN_CONTACTS"),
+        (missions, "space_missions", "SPACE_MISSIONS")
+    ]
+    
+    exported_files = []
+    
+    for data, filename, var_name in datasets:
+        json_file = exporter.export_to_json(data, filename)
+        exported_files.append(json_file)
+        
+        py_file = exporter.export_to_python(data, filename, var_name)
+        exported_files.append(py_file)
+        
+        if filename != "space_missions":
+            csv_file = exporter.export_to_csv(data, filename)
+            if csv_file:
+                exported_files.append(csv_file)
+    
+    print(f"Generated {len(exported_files)} data files:")
+    for file_path in exported_files:
+        print(f"  {file_path}")
+    
+    return exported_files
+
+
+def create_test_scenarios():
+    """Create specific test scenarios for validation testing"""
+    config = DataConfig()
+    exporter = DataExporter()
+    
+    invalid_stations = [
+        {
+            "station_id": "TOOLONG123456",
+            "name": "Test Station",
+            "crew_size": 25,
+            "power_level": 85.0,
+            "oxygen_level": 92.0,
+            "last_maintenance": "2024-01-15T10:30:00",
+            "is_operational": True
+        },
+        {
+            "station_id": "TS",
+            "name": "",
+            "crew_size": 0,
+            "power_level": -10.0,
+            "oxygen_level": 150.0,
+            "last_maintenance": "2024-01-15T10:30:00",
+            "is_operational": True
+        }
+    ]
+    
+    invalid_contacts = [
+        {
+            "contact_id": "WRONG_FORMAT",
+            "timestamp": "2024-01-15T14:30:00",
+            "location": "Area 51",
+            "contact_type": "radio",
+            "signal_strength": 8.5,
+            "duration_minutes": 45,
+            "witness_count": 5,
+            "message_received": None,
+            "is_verified": False
+        },
+        {
+            "contact_id": "AC_2024_002",
+            "timestamp": "2024-01-16T09:15:00",
+            "location": "Roswell",
+            "contact_type": "telepathic",
+            "signal_strength": 6.2,
+            "duration_minutes": 30,
+            "witness_count": 1,
+            "message_received": None,
+            "is_verified": False
+        }
+    ]
+    
+    exporter.export_to_json(invalid_stations, "invalid_stations")
+    exporter.export_to_json(invalid_contacts, "invalid_contacts")
+    
+    print("Created validation test scenarios")
+
+
+if __name__ == "__main__":
+    generate_all_datasets()
+    create_test_scenarios()
+    print("\nAll data files ready for testing!")
